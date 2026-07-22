@@ -73,7 +73,38 @@
     color:var(--text-dim);
     margin-bottom:10px;
   }
-  #roster{ display:flex; flex-direction:column; gap:3px; overflow-y:auto; }
+  #roster{ display:flex; flex-direction:column; gap:3px; overflow-y:auto; max-height:22vh; }
+
+  #new-chat-btn{
+    width:100%;
+    background:var(--amber);
+    color:#20160A;
+    border:none;
+    border-radius:9px;
+    padding:9px 12px;
+    font-family:'Space Grotesk',sans-serif;
+    font-weight:600;
+    font-size:13px;
+    cursor:pointer;
+    transition:opacity .2s ease, transform .1s ease;
+  }
+  #new-chat-btn:active{ transform:scale(.97); }
+  #new-chat-btn:hover{ opacity:.92; }
+
+  #history{ display:flex; flex-direction:column; gap:2px; overflow-y:auto; max-height:30vh; }
+  .hist-item{
+    display:flex; align-items:center; gap:8px;
+    padding:8px 9px;
+    border-radius:8px;
+    font-size:12.5px;
+    color:var(--text-dim);
+    cursor:pointer;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    transition:background .2s ease, color .2s ease;
+  }
+  .hist-item:hover{ background:var(--panel-2); color:var(--text); }
+  .hist-item.active{ background:var(--panel-2); color:var(--text); border-left:2px solid var(--amber); }
+  .hist-empty{ font-size:11.5px; color:var(--text-dim); padding:6px 9px; font-family:'JetBrains Mono',monospace; }
   .team-row{
     display:flex;
     align-items:center;
@@ -441,8 +472,14 @@
 
   <aside id="sidebar">
     <div class="brand">Agno</div>
-    <div class="brand-sub">SUPERVISOR CONSOLE — PHASE 1</div>
-    <div class="roster-label">লোড হওয়া টিম</div>
+    <div class="brand-sub">SUPERVISOR CONSOLE</div>
+
+    <button id="new-chat-btn">✚ নতুন চ্যাট</button>
+
+    <div class="roster-label" style="margin-top:18px;">হিস্টরি</div>
+    <div id="history"><div class="hist-empty">এখনো কোনো চ্যাট নেই</div></div>
+
+    <div class="roster-label" style="margin-top:18px;">লোড হওয়া টিম</div>
     <div id="roster"><!-- জাভাস্ক্রিপ্ট দিয়ে পূরণ হবে --></div>
 
     <div class="mode-label">মোড</div>
@@ -708,60 +745,124 @@ async function attachTTS(bubbleWrap, text){
   }
 }
 
-// ---- websocket ----
-let ws;
+// ---- streaming chat over HTTP (Basic Auth ব্রাউজারে আপনাআপনি যায়) ----
+let busy = false;
 let currentAgentBubble = null;
 let currentAgentText = '';
+let thinkingEl = null;
 
-function connect(){
-  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${proto}://${location.host}/ws/chat`);
-
-  ws.onopen = ()=>{
+async function checkHealth(){
+  try{
+    const res = await fetch('/api/health', {cache:'no-store'});
+    if(!res.ok) throw new Error();
     connDot.classList.add('online');
     connText.textContent = 'সংযুক্ত';
-    sendBtn.disabled = false;
-  };
-  ws.onclose = ()=>{
+  }catch(e){
     connDot.classList.remove('online');
-    connText.textContent = 'সংযোগ বিচ্ছিন্ন — পুনরায় চেষ্টা হচ্ছে…';
-    sendBtn.disabled = true;
-    setTimeout(connect, 2000);
-  };
-  ws.onerror = ()=> ws.close();
+    connText.textContent = 'সংযোগ নেই';
+  }
+}
+checkHealth();
+setInterval(checkHealth, 8000);
 
-  ws.onmessage = (ev)=>{
-    const data = JSON.parse(ev.data);
-    if(data.type === 'session'){
+function showThinking(){
+  removeThinking();
+  const wrap = document.createElement('div');
+  wrap.className = 'msg agent';
+  wrap.innerHTML = `<div class="tag"><span class="swatch"></span>Supervisor</div>`+
+    `<div class="bubble"><div class="typing"><span></span><span></span><span></span></div></div>`;
+  threadInner.appendChild(wrap);
+  scrollToBottom();
+  thinkingEl = wrap;
+}
+function removeThinking(){ if(thinkingEl){ thinkingEl.remove(); thinkingEl = null; } }
+
+function finishTurn(){
+  currentAgentBubble = null; currentAgentText = '';
+  clearTeamActive(); busy = false; sendBtn.disabled = false;
+}
+
+function handleEvent(data){
+  if(data.type === 'session'){
+    if(data.session_id && data.session_id !== sessionId){
       sessionId = data.session_id;
       localStorage.setItem('agno_session_id', sessionId);
-    } else if(data.type === 'chunk'){
-      if(!currentAgentBubble){
-        currentAgentBubble = addMessage('agent', '', data.team);
-      }
-      if(data.team) setTeamActive(data.team);
-      currentAgentText += data.text;
-      currentAgentBubble.querySelector('.bubble').textContent = currentAgentText;
-      scrollToBottom();
-    } else if(data.type === 'done'){
-      if((mode === 'voice' || mode === 'avatar') && currentAgentBubble && currentAgentText){
-        attachTTS(currentAgentBubble, currentAgentText);
-      }
-      currentAgentBubble = null;
-      currentAgentText = '';
-      clearTeamActive();
-      sendBtn.disabled = false;
-    } else if(data.type === 'error'){
-      if(!currentAgentBubble) currentAgentBubble = addMessage('agent', '', null);
-      currentAgentBubble.querySelector('.bubble').classList.add('error');
-      currentAgentBubble.querySelector('.bubble').textContent = 'সমস্যা হয়েছে: ' + data.message;
-      currentAgentBubble = null; currentAgentText = '';
-      clearTeamActive();
-      sendBtn.disabled = false;
     }
-  };
+  } else if(data.type === 'chunk'){
+    removeThinking();
+    if(!currentAgentBubble) currentAgentBubble = addMessage('agent', '', data.team);
+    if(data.team) setTeamActive(data.team);
+    currentAgentText += data.text;
+    currentAgentBubble.querySelector('.bubble').textContent = currentAgentText;
+    scrollToBottom();
+  } else if(data.type === 'done'){
+    if((mode === 'voice' || mode === 'avatar') && currentAgentBubble && currentAgentText){
+      attachTTS(currentAgentBubble, currentAgentText);
+    }
+    finishTurn();
+    loadSessions();
+  } else if(data.type === 'error'){
+    removeThinking();
+    if(!currentAgentBubble) currentAgentBubble = addMessage('agent', '', null);
+    const b = currentAgentBubble.querySelector('.bubble');
+    b.classList.add('error');
+    b.textContent = 'সমস্যা হয়েছে: ' + data.message;
+    finishTurn();
+  }
 }
-connect();
+
+// ---- history ----
+async function loadSessions(){
+  try{
+    const res = await fetch('/api/sessions?limit=50', {cache:'no-store'});
+    const data = await res.json();
+    const box = document.getElementById('history');
+    const sessions = data.sessions || [];
+    if(!sessions.length){ box.innerHTML = '<div class="hist-empty">এখনো কোনো চ্যাট নেই</div>'; return; }
+    box.innerHTML = '';
+    sessions.forEach(s=>{
+      const el = document.createElement('div');
+      el.className = 'hist-item' + (s.session_id === sessionId ? ' active' : '');
+      el.textContent = s.title || '(শিরোনামহীন)';
+      el.title = s.title || '';
+      el.addEventListener('click', ()=> openSession(s.session_id));
+      box.appendChild(el);
+    });
+  }catch(e){ /* সার্ভার সাময়িক অনুপলব্ধ */ }
+}
+
+async function openSession(sid){
+  if(busy) return;
+  sessionId = sid;
+  localStorage.setItem('agno_session_id', sid);
+  try{
+    const res = await fetch('/api/history/' + encodeURIComponent(sid), {cache:'no-store'});
+    const data = await res.json();
+    threadInner.innerHTML = '';
+    (data.messages || []).forEach(m=>{
+      if(m.user_message) addMessage('user', m.user_message, null);
+      if(m.response_text) addMessage('agent', m.response_text, null);
+    });
+    scrollToBottom();
+  }catch(e){}
+  loadSessions();
+  if(window.innerWidth <= 760) sidebar.classList.remove('open');
+}
+
+document.getElementById('new-chat-btn').addEventListener('click', ()=>{
+  if(busy) return;
+  sessionId = null;
+  localStorage.removeItem('agno_session_id');
+  threadInner.innerHTML = '';
+  threadInner.appendChild(emptyState);
+  emptyState.style.display = '';
+  loadSessions();
+  input.focus();
+  if(window.innerWidth <= 760) sidebar.classList.remove('open');
+});
+
+loadSessions();
+if(sessionId){ openSession(sessionId); }
 
 function addMessage(role, text, team){
   emptyState.style.display = 'none';
@@ -783,14 +884,44 @@ function scrollToBottom(){
   thread.scrollTop = thread.scrollHeight;
 }
 
-function send(){
+async function send(){
   const text = input.value.trim();
-  if(!text || ws.readyState !== WebSocket.OPEN) return;
+  if(!text || busy) return;
+  busy = true;
+  sendBtn.disabled = true;
   addMessage('user', text, null);
-  ws.send(JSON.stringify({message: text, session_id: sessionId}));
   input.value = '';
   input.style.height = 'auto';
-  sendBtn.disabled = true;
+  showThinking();
+  try{
+    const res = await fetch('/api/chat/stream', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({message: text, session_id: sessionId}),
+    });
+    if(!res.ok || !res.body) throw new Error('HTTP ' + res.status);
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    while(true){
+      const {value, done} = await reader.read();
+      if(done) break;
+      buf += dec.decode(value, {stream:true});
+      let idx;
+      while((idx = buf.indexOf('\n')) >= 0){
+        const line = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 1);
+        if(line){ try{ handleEvent(JSON.parse(line)); }catch(e){} }
+      }
+    }
+    if(buf.trim()){ try{ handleEvent(JSON.parse(buf.trim())); }catch(e){} }
+    if(busy) finishTurn();   // 'done' না এলেও যাতে আটকে না থাকে
+  }catch(err){
+    removeThinking();
+    const b = addMessage('agent', 'সংযোগ সমস্যা: ' + err.message, null);
+    b.querySelector('.bubble').classList.add('error');
+    finishTurn();
+  }
 }
 
 sendBtn.addEventListener('click', send);

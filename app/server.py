@@ -28,7 +28,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException
 from fastapi.requests import Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -181,6 +181,119 @@ async def chat(req: ChatRequest):
     text = getattr(response, "content", None) or str(response)
     memory_core.log_exchange(session_id, req.message, text)
     return {"session_id": session_id, "response": text}
+
+
+@app.post("/api/chat/stream")
+async def chat_stream(req: ChatRequest):
+    """
+    HTTP স্ট্রিমিং চ্যাট (NDJSON) — ব্রাউজার fetch() দিয়ে পড়ে, তাই HTTP Basic Auth
+    আপনাআপনি যায় (WebSocket-এ ব্রাউজার Authorization header পাঠাতে পারে না বলে
+    আগের /ws/chat ব্রাউজারে কাজ করত না — এটা সেই সমস্যা এড়ায়)।
+
+    প্রতিটা লাইন একটা JSON:
+        {"type":"session","session_id":...}
+        {"type":"chunk","text":"...","team":"..."}
+        {"type":"done"}   |   {"type":"error","message":"..."}
+    """
+    session_id = req.session_id or str(uuid.uuid4())
+    message = req.message
+
+    async def gen():
+        yield json.dumps({"type": "session", "session_id": session_id}) + "\n"
+        parts: list[str] = []
+        teams_touched: list[str] = []
+        try:
+            stream = await supervisor.arun(message, session_id=session_id, stream=True)
+            async for event in stream:
+                text = _extract_text(event)
+                if not text:
+                    continue
+                team = _team_label(event)
+                parts.append(text)
+                if team:
+                    teams_touched.append(team)
+                yield json.dumps({"type": "chunk", "text": text, "team": team}) + "\n"
+            # স্ট্রিম থেকে কোনো টেক্সট না এলে non-streaming fallback (যাতে উত্তর নিশ্চিত আসে)
+            if not parts:
+                response = await supervisor.arun(message, session_id=session_id)
+                text = getattr(response, "content", None) or str(response)
+                parts.append(text)
+                yield json.dumps({"type": "chunk", "text": text, "team": None}) + "\n"
+            yield json.dumps({"type": "done"}) + "\n"
+        except Exception as e:  # noqa: BLE001 — স্ট্রিমিং ব্যর্থ হলে non-streaming fallback
+            logger.warning("Streaming failed (%s), falling back.", e)
+            try:
+                response = await supervisor.arun(message, session_id=session_id)
+                text = getattr(response, "content", None) or str(response)
+                parts.append(text)
+                yield json.dumps({"type": "chunk", "text": text, "team": None}) + "\n"
+                yield json.dumps({"type": "done"}) + "\n"
+            except Exception as e2:  # noqa: BLE001
+                logger.exception("Fallback run failed too.")
+                yield json.dumps({"type": "error", "message": str(e2)}) + "\n"
+                return
+        full = "".join(parts)
+        _log_trace(session_id, message, full, teams_touched)
+        memory_core.log_exchange(session_id, message, full)
+
+    return StreamingResponse(gen(), media_type="application/x-ndjson")
+
+
+@app.get("/api/sessions")
+async def list_sessions(limit: int = 50):
+    """অতীতের চ্যাট-সেশনের তালিকা (হিস্টরি সাইডবারের জন্য) — প্রতিটার প্রথম মেসেজ
+    টাইটেল হিসেবে, সাম্প্রতিকতম আগে।"""
+    try:
+        import os
+        from pymongo import MongoClient
+        db = MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017"))[
+            os.getenv("MONGODB_DB_NAME", "agno_system")
+        ]
+        pipeline = [
+            {"$sort": {"at": 1}},
+            {"$group": {
+                "_id": "$session_id",
+                "title": {"$first": "$user_message"},
+                "last": {"$max": "$at"},
+                "count": {"$sum": 1},
+            }},
+            {"$sort": {"last": -1}},
+            {"$limit": limit},
+        ]
+        out = []
+        for d in db["agno_conversation_log"].aggregate(pipeline):
+            out.append({
+                "session_id": d["_id"],
+                "title": (d.get("title") or "")[:80],
+                "last": d["last"].isoformat() if hasattr(d.get("last"), "isoformat") else str(d.get("last")),
+                "count": d.get("count", 0),
+            })
+        return {"sessions": out}
+    except Exception as e:  # noqa: BLE001
+        return {"sessions": [], "error": str(e)}
+
+
+@app.get("/api/history/{session_id}")
+async def get_history(session_id: str, limit: int = 200):
+    """একটা সেশনের সব মেসেজ (ইউজার + সিস্টেম), পুরনো থেকে নতুন ক্রমে।"""
+    try:
+        import os
+        from pymongo import MongoClient
+        db = MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017"))[
+            os.getenv("MONGODB_DB_NAME", "agno_system")
+        ]
+        msgs = []
+        for d in db["agno_conversation_log"].find(
+            {"session_id": session_id}, {"_id": 0}
+        ).sort("at", 1).limit(limit):
+            msgs.append({
+                "user_message": d.get("user_message", ""),
+                "response_text": d.get("response_text", ""),
+                "at": d["at"].isoformat() if hasattr(d.get("at"), "isoformat") else str(d.get("at")),
+            })
+        return {"session_id": session_id, "messages": msgs}
+    except Exception as e:  # noqa: BLE001
+        return {"session_id": session_id, "messages": [], "error": str(e)}
 
 
 class TTSRequest(BaseModel):
