@@ -1,0 +1,11 @@
+# আসল secret কখনো git-এ যাবে না
+.env
+
+# Python
+app/venv
+**/__pycache__/
+*.pyc
+
+# runtime
+*.log
+agno_sql.db

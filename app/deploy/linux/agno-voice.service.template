@@ -1,0 +1,30 @@
+# ঐচ্ছিক systemd সার্ভিস — voice_daemon.py-কে (wake-word listener) ব্যাকগ্রাউন্ডে
+# চালানোর জন্য। ডিফল্টে install.sh এটা চালু করে না (CPU-ভারী, মাইক অ্যাক্সেস
+# দরকার) — ইউজার স্পষ্টভাবে চাইলেই বসে।
+#
+# ম্যানুয়াল ইনস্টল:
+#   sed -e "s#__WORKDIR__#$(pwd)#g" -e "s#__USER__#$(whoami)#g" \
+#       deploy/linux/agno-voice.service.template | sudo tee /etc/systemd/system/agno-voice.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now agno-voice
+#
+# লগ দেখতে: journalctl -u agno-voice -f
+
+[Unit]
+Description=Agno Voice Daemon (wake-word listener)
+After=agno-system.service sound.target
+Wants=agno-system.service
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__WORKDIR__
+SupplementaryGroups=audio
+Environment="PATH=__WORKDIR__/venv/bin"
+EnvironmentFile=-__WORKDIR__/.env
+ExecStart=__WORKDIR__/venv/bin/python voice_daemon.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,20 @@
+# এই ফাইলটা install.sh নিজে থেকেই __WORKDIR__/__USER__ প্রতিস্থাপন করে
+# /etc/systemd/system/agno-system.service হিসেবে বসিয়ে দেয় — ম্যানুয়ালি এডিট
+# করার দরকার নেই।
+
+[Unit]
+Description=Agno General-Purpose Supervisor System (AI OS daemon)
+After=network.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__WORKDIR__
+Environment="PATH=__WORKDIR__/venv/bin"
+EnvironmentFile=-__WORKDIR__/.env
+ExecStart=__WORKDIR__/venv/bin/uvicorn server:app --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

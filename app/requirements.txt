@@ -1,0 +1,93 @@
+# --- Core ---
+agno
+python-dotenv
+
+# --- Web server (Phase 1: চ্যাট UI + ব্যাকগ্রাউন্ড সার্ভিস) ---
+fastapi
+uvicorn[standard]
+websockets
+python-multipart      # ফাইল আপলোড (STT অডিও) হ্যান্ডল করতে
+
+# --- Voice (Phase 2: STT + TTS, দুটোই ওপেন-সোর্স, লোকালি চলে) ---
+faster-whisper         # স্পিচ-টু-টেক্সট
+transformers           # টেক্সট-টু-স্পিচ (MMS-TTS)
+torch                  # transformers/MMS-TTS-এর জন্য দরকার
+soundfile               # WAV এনকোড করতে
+
+# --- Model providers ---
+openai
+
+# --- Database ---
+pymongo
+
+# --- Free tools ---
+duckduckgo-search
+ddgs                    # agno-র DuckDuckGoTools এখন এটা আলাদাভাবে চায়
+wikipedia
+arxiv
+pypdf                    # agno-র ArxivTools এটা দিয়ে PDF পড়ে
+pymed
+baidusearch
+newspaper4k
+lxml_html_clean
+trafilatura
+crawl4ai
+pandas
+duckdb
+sqlalchemy
+matplotlib
+opencv-python
+yfinance
+pycountry                # yfinance/related tools এটা চায়
+docling
+moviepy
+
+# --- Coding Team ---
+docker
+PyGithub
+python-gitlab
+
+# --- Social Media Team ---
+python-telegram-bot
+requests            # Facebook/TikTok/YouTube API কল করতে PythonTools ব্যবহার করবে
+
+# --- E-commerce Team ---
+# shopifyapi        # Shopify SDK চাইলে আনকমেন্ট করো (Agno-র ShopifyTools নিজে থেকেও REST কল করতে পারে)
+
+# --- Productivity (ঐচ্ছিক) ---
+# slack-sdk
+# google-api-python-client google-auth-httplib2 google-auth-oauthlib
+# notion-client
+
+# --- Proactive/Scheduler Team --- (pymongo ইতিমধ্যে উপরে Database সেকশনে আছে, scheduler.py/guardrail.py সেটাই ব্যবহার করে)
+apscheduler
+
+# --- Vision Team (স্ক্রিন পড়া) ---
+mss
+pytesseract
+# সিস্টেমে আলাদাভাবে Tesseract OCR ইনস্টল লাগবে (এই ISO-তে package-list এ আগে থেকেই আছে):
+#   sudo apt install tesseract-ocr tesseract-ocr-ben
+
+# --- PC Team (ঐচ্ছিক GUI অটোমেশন) ---
+# pyautogui
+
+# --- Security Team (vault এনক্রিপশন) ---
+cryptography
+
+# --- Notification Team ---
+plyer
+
+# --- IoT Team ---
+requests
+
+# --- Meta/Self-extension Team ---
+# কোনো এক্সট্রা dependency লাগে না (শুধু stdlib pathlib)
+
+# --- Voice Daemon (wake-word, always-listening) ---
+sounddevice           # মাইক ক্যাপচার — সিস্টেমে libportaudio2/portaudio19-dev লাগবে (install.sh এটা যোগ করে)
+numpy
+
+# --- PC Team (ডেস্কটপ কন্ট্রোল) ---
+# xdotool/wmctrl/xclip সিস্টেম প্যাকেজ (install.sh ইনস্টল করে), pyautogui ঐচ্ছিক fallback:
+# pyautogui
+

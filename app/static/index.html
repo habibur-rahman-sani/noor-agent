@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Agno — সুপারভাইজার কনসোল</title>
+<link rel="manifest" href="/static/manifest.json">
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/icon.svg">
+<meta name="theme-color" content="#0F1720">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+Bengali:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:        #0F1720;
+    --panel:     #16212C;
+    --panel-2:   #1C2A36;
+    --line:      #263543;
+    --text:      #E7EDF2;
+    --text-dim:  #8B9BAA;
+    --amber:     #E8A33D;
+    --amber-dim: #6B5230;
+    --teal:      #4FD1C5;
+    --danger:    #E8734D;
+    --radius:    10px;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Inter','Noto Sans Bengali',sans-serif;
+    display:flex;
+    overflow:hidden;
+  }
+  ::selection{background:var(--amber-dim);}
+
+  /* ---------- layout ---------- */
+  #app{ display:flex; width:100%; height:100vh; }
+
+  #sidebar{
+    width:250px;
+    flex-shrink:0;
+    background:var(--panel);
+    border-right:1px solid var(--line);
+    display:flex;
+    flex-direction:column;
+    padding:20px 16px;
+  }
+  #sidebar.hidden{ display:none; }
+
+  .brand{
+    font-family:'Space Grotesk',sans-serif;
+    font-weight:700;
+    font-size:17px;
+    letter-spacing:.2px;
+    margin-bottom:2px;
+  }
+  .brand-sub{
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    color:var(--text-dim);
+    margin-bottom:22px;
+    letter-spacing:.3px;
+  }
+
+  .roster-label{
+    font-family:'JetBrains Mono',monospace;
+    font-size:10.5px;
+    text-transform:uppercase;
+    letter-spacing:1.4px;
+    color:var(--text-dim);
+    margin-bottom:10px;
+  }
+  #roster{ display:flex; flex-direction:column; gap:3px; overflow-y:auto; }
+  .team-row{
+    display:flex;
+    align-items:center;
+    gap:9px;
+    padding:8px 9px;
+    border-radius:8px;
+    font-size:13px;
+    color:var(--text-dim);
+    transition:background .25s ease, color .25s ease;
+  }
+  .team-row .dot{
+    width:7px; height:7px; border-radius:50%;
+    background:var(--line);
+    flex-shrink:0;
+    transition:box-shadow .3s ease, background .3s ease;
+  }
+  .team-row.active{
+    background:var(--panel-2);
+    color:var(--text);
+  }
+  .team-row.active .dot{
+    background:var(--team-color, var(--amber));
+    box-shadow:0 0 0 3px color-mix(in srgb, var(--team-color, var(--amber)) 25%, transparent);
+    animation:pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse{
+    0%,100%{ opacity:1; }
+    50%{ opacity:.45; }
+  }
+
+  .mode-label{
+    font-family:'JetBrains Mono',monospace;
+    font-size:10.5px;
+    text-transform:uppercase;
+    letter-spacing:1.4px;
+    color:var(--text-dim);
+    margin:22px 0 10px;
+  }
+  #mode-switch{
+    display:flex;
+    flex-direction:column;
+    gap:5px;
+  }
+  .mode-opt{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:8px 9px;
+    border-radius:8px;
+    font-size:12.5px;
+    color:var(--text-dim);
+    cursor:pointer;
+    border:1px solid transparent;
+  }
+  .mode-opt input{ accent-color:var(--amber); }
+  .mode-opt.selected{
+    background:var(--panel-2);
+    color:var(--text);
+    border-color:var(--line);
+  }
+  .mode-opt.disabled{ opacity:.4; cursor:not-allowed; }
+
+  .sidebar-foot{
+    margin-top:auto;
+    padding-top:14px;
+    border-top:1px solid var(--line);
+    font-family:'JetBrains Mono',monospace;
+    font-size:10.5px;
+    color:var(--text-dim);
+    display:flex;
+    align-items:center;
+    gap:7px;
+  }
+  .conn-dot{ width:7px; height:7px; border-radius:50%; background:var(--danger); flex-shrink:0; }
+  .conn-dot.online{ background:#5FBF7A; }
+
+  /* ---------- main ---------- */
+  #main{ flex:1; display:flex; flex-direction:column; min-width:0; }
+
+  #topbar{
+    height:56px;
+    flex-shrink:0;
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:0 18px;
+    border-bottom:1px solid var(--line);
+  }
+  #menu-btn{
+    display:none;
+    background:none; border:none; color:var(--text);
+    font-size:20px; cursor:pointer; padding:4px;
+  }
+  #topbar .title{
+    font-family:'Space Grotesk',sans-serif;
+    font-weight:600;
+    font-size:15px;
+  }
+  #topbar .active-team{
+    margin-left:auto;
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    color:var(--text-dim);
+  }
+
+  /* ---------- avatar (Phase 3) ---------- */
+  #avatar-stage{
+    display:none;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    padding:26px 0 6px;
+    flex-shrink:0;
+  }
+  #avatar-stage.shown{ display:flex; }
+
+  .avatar-ring{
+    position:relative;
+    width:132px; height:132px;
+    border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    animation:breathe 4.2s ease-in-out infinite;
+  }
+  @keyframes breathe{
+    0%,100%{ transform:scale(1); }
+    50%{ transform:scale(1.035); }
+  }
+  .avatar-ring::before{
+    content:'';
+    position:absolute; inset:-10px;
+    border-radius:50%;
+    border:1.5px solid var(--amber-dim);
+    opacity:.5;
+    transition:opacity .3s ease, border-color .3s ease, box-shadow .3s ease;
+  }
+  .avatar-ring.speaking::before{
+    border-color:var(--amber);
+    opacity:1;
+    box-shadow:0 0 calc(6px + var(--mouth-open, 0) * 26px) var(--amber);
+  }
+
+  .avatar-face{
+    width:110px; height:110px;
+    border-radius:50%;
+    background:linear-gradient(160deg,var(--panel-2),var(--panel));
+    border:1px solid var(--line);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:14px;
+  }
+  .avatar-eyes{ display:flex; gap:22px; }
+  .avatar-eye{
+    width:9px; height:9px;
+    border-radius:50%;
+    background:var(--teal);
+    animation:blink 5.5s ease-in-out infinite;
+  }
+  .avatar-eye.right{ animation-delay:.15s; }
+  @keyframes blink{
+    0%,92%,100%{ transform:scaleY(1); }
+    95%{ transform:scaleY(.15); }
+  }
+
+  .avatar-mouth-wrap{ height:14px; display:flex; align-items:center; }
+  .avatar-mouth{
+    width:30px; height:4px;
+    border-radius:6px;
+    background:var(--amber);
+    transform:scaleY(calc(1 + var(--mouth-open, 0) * 2.6));
+    transition:transform .05s linear;
+  }
+
+  .avatar-caption{
+    margin-top:12px;
+    font-family:'JetBrains Mono',monospace;
+    font-size:10.5px;
+    color:var(--text-dim);
+    text-align:center;
+    max-width:260px;
+  }
+
+  #thread{
+    flex:1;
+    overflow-y:auto;
+    padding:26px 0 10px;
+  }
+  #thread-inner{
+    max-width:720px;
+    margin:0 auto;
+    padding:0 20px;
+    display:flex;
+    flex-direction:column;
+    gap:18px;
+  }
+
+  .empty-state{
+    max-width:520px;
+    margin:12vh auto 0;
+    text-align:center;
+    color:var(--text-dim);
+    padding:0 24px;
+  }
+  .empty-state .glyph{
+    font-family:'Space Grotesk',sans-serif;
+    font-size:34px;
+    font-weight:700;
+    color:var(--text);
+    margin-bottom:10px;
+  }
+  .empty-state p{ font-size:13.5px; line-height:1.7; }
+
+  .msg{ display:flex; flex-direction:column; max-width:82%; }
+  .msg.user{ align-self:flex-end; align-items:flex-end; }
+  .msg.agent{ align-self:flex-start; align-items:flex-start; }
+
+  .msg .tag{
+    font-family:'JetBrains Mono',monospace;
+    font-size:10.5px;
+    color:var(--text-dim);
+    margin-bottom:5px;
+    padding:0 4px;
+  }
+  .msg .tag .swatch{
+    display:inline-block; width:6px; height:6px; border-radius:50%;
+    margin-right:5px; background:var(--amber);
+  }
+
+  .bubble{
+    border-radius:var(--radius);
+    padding:11px 14px;
+    font-size:14.5px;
+    line-height:1.65;
+    white-space:pre-wrap;
+    word-wrap:break-word;
+  }
+  .msg.user .bubble{
+    background:var(--amber);
+    color:#20160A;
+    border-bottom-right-radius:3px;
+  }
+  .msg.agent .bubble{
+    background:var(--panel-2);
+    border:1px solid var(--line);
+    border-bottom-left-radius:3px;
+  }
+  .msg.agent .bubble.error{
+    border-color:var(--danger);
+    color:var(--danger);
+  }
+
+  .typing{ display:inline-flex; gap:4px; padding:3px 0; }
+  .typing span{
+    width:5px; height:5px; border-radius:50%;
+    background:var(--text-dim);
+    animation:blink 1.2s infinite ease-in-out;
+  }
+  .typing span:nth-child(2){ animation-delay:.2s; }
+  .typing span:nth-child(3){ animation-delay:.4s; }
+  @keyframes blink{ 0%,80%,100%{opacity:.25;} 40%{opacity:1;} }
+
+  /* ---------- composer ---------- */
+  #composer{
+    flex-shrink:0;
+    border-top:1px solid var(--line);
+    padding:14px 20px 18px;
+  }
+  #composer-inner{
+    max-width:720px;
+    margin:0 auto;
+    display:flex;
+    align-items:flex-end;
+    gap:10px;
+    background:var(--panel-2);
+    border:1px solid var(--line);
+    border-radius:14px;
+    padding:8px 8px 8px 16px;
+  }
+  #composer-inner:focus-within{ border-color:var(--amber); }
+  #msg-input{
+    flex:1;
+    background:none;
+    border:none;
+    outline:none;
+    resize:none;
+    color:var(--text);
+    font-family:'Inter','Noto Sans Bengali',sans-serif;
+    font-size:14.5px;
+    line-height:1.6;
+    max-height:160px;
+    padding:6px 0;
+  }
+  #msg-input::placeholder{ color:var(--text-dim); }
+  #send-btn, #mic-btn{
+    flex-shrink:0;
+    width:38px; height:38px;
+    border-radius:10px;
+    border:none;
+    background:var(--amber);
+    color:#20160A;
+    font-size:16px;
+    cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+    transition:opacity .2s ease, transform .1s ease, background .2s ease;
+  }
+  #send-btn:disabled, #mic-btn:disabled{ opacity:.35; cursor:default; }
+  #send-btn:active:not(:disabled), #mic-btn:active:not(:disabled){ transform:scale(.93); }
+  #mic-btn{ background:var(--panel); border:1px solid var(--line); color:var(--text); display:none; }
+  #mic-btn.hidden{ display:none !important; }
+  #mic-btn.shown{ display:flex; }
+  #mic-btn.recording{
+    background:var(--danger);
+    color:#fff;
+    border-color:var(--danger);
+    animation:pulse 1s ease-in-out infinite;
+  }
+  #mic-status{
+    max-width:720px;
+    margin:6px auto 0;
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    color:var(--danger);
+    text-align:center;
+    min-height:14px;
+  }
+
+  .audio-chip{
+    display:inline-flex; align-items:center; gap:6px;
+    margin-top:8px;
+    padding:4px 10px;
+    border-radius:20px;
+    border:1px solid var(--line);
+    background:var(--panel);
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    color:var(--text-dim);
+    cursor:pointer;
+    width:fit-content;
+  }
+  .audio-chip:hover{ color:var(--text); border-color:var(--amber); }
+  .audio-chip.loading{ opacity:.5; cursor:wait; }
+
+  .composer-hint{
+    max-width:720px;
+    margin:8px auto 0;
+    font-family:'JetBrains Mono',monospace;
+    font-size:10.5px;
+    color:var(--text-dim);
+    text-align:center;
+  }
+
+  @media (max-width: 760px){
+    #sidebar{
+      position:fixed; z-index:20; height:100vh;
+      transform:translateX(-100%);
+      transition:transform .25s ease;
+      box-shadow:0 0 40px rgba(0,0,0,.5);
+    }
+    #sidebar.open{ transform:translateX(0); }
+    #menu-btn{ display:block; }
+    .msg{ max-width:92%; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <aside id="sidebar">
+    <div class="brand">Agno</div>
+    <div class="brand-sub">SUPERVISOR CONSOLE — PHASE 1</div>
+    <div class="roster-label">লোড হওয়া টিম</div>
+    <div id="roster"><!-- জাভাস্ক্রিপ্ট দিয়ে পূরণ হবে --></div>
+
+    <div class="mode-label">মোড</div>
+    <div id="mode-switch">
+      <label class="mode-opt" data-mode="text">
+        <input type="radio" name="mode" value="text"> শুধু টেক্সট
+      </label>
+      <label class="mode-opt" data-mode="voice">
+        <input type="radio" name="mode" value="voice"> টেক্সট + ভয়েস
+      </label>
+      <label class="mode-opt" data-mode="avatar">
+        <input type="radio" name="mode" value="avatar"> অ্যাভাটার
+      </label>
+    </div>
+
+    <div class="sidebar-foot">
+      <span class="conn-dot" id="conn-dot"></span>
+      <span id="conn-text">সংযোগ করা হচ্ছে…</span>
+    </div>
+  </aside>
+
+  <main id="main">
+    <div id="topbar">
+      <button id="menu-btn" aria-label="মেনু">☰</button>
+      <div class="title">সুপারভাইজারের সাথে চ্যাট</div>
+      <div class="active-team" id="active-team-label"></div>
+    </div>
+
+    <div id="avatar-stage">
+      <div class="avatar-ring" id="avatar-ring">
+        <div class="avatar-face">
+          <div class="avatar-eyes">
+            <div class="avatar-eye"></div>
+            <div class="avatar-eye right"></div>
+          </div>
+          <div class="avatar-mouth-wrap"><div class="avatar-mouth" id="avatar-mouth"></div></div>
+        </div>
+      </div>
+      <div class="avatar-caption" id="avatar-caption">বলুন, শুনছি…</div>
+    </div>
+
+    <div id="thread">
+      <div id="thread-inner">
+        <div class="empty-state" id="empty-state">
+          <div class="glyph">যা বলবেন, তাই হবে।</div>
+          <p>নিচে লিখুন — সুপারভাইজার আপনার কাজটা সঠিক টিমের কাছে পাঠাবে
+             (কোডিং, রিসার্চ, সোশ্যাল মিডিয়া, PC/মোবাইল অটোমেশন ইত্যাদি)।
+             বাম পাশে দেখা যাবে কোন টিম এখন কাজ করছে।</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="composer">
+      <div id="composer-inner">
+        <textarea id="msg-input" rows="1" placeholder="একটা মেসেজ লিখুন…"></textarea>
+        <button id="mic-btn" aria-label="ভয়েস ইনপুট">🎤</button>
+        <button id="send-btn" aria-label="পাঠান">➤</button>
+      </div>
+      <div id="mic-status"></div>
+      <div class="composer-hint" id="composer-hint">Enter = পাঠান · Shift+Enter = নতুন লাইন</div>
+    </div>
+  </main>
+
+</div>
+
+<script>
+const TEAM_COLORS = ["#E8A33D","#4FD1C5","#C084FC","#F472B6","#60A5FA","#A3E635","#FB923C","#38BDF8"];
+const teamColorMap = {};
+function colorFor(name){
+  if(!teamColorMap[name]){
+    const idx = Object.keys(teamColorMap).length % TEAM_COLORS.length;
+    teamColorMap[name] = TEAM_COLORS[idx];
+  }
+  return teamColorMap[name];
+}
+
+const rosterEl = document.getElementById('roster');
+const threadInner = document.getElementById('thread-inner');
+const thread = document.getElementById('thread');
+const emptyState = document.getElementById('empty-state');
+const input = document.getElementById('msg-input');
+const sendBtn = document.getElementById('send-btn');
+const connDot = document.getElementById('conn-dot');
+const connText = document.getElementById('conn-text');
+const activeTeamLabel = document.getElementById('active-team-label');
+const sidebar = document.getElementById('sidebar');
+const menuBtn = document.getElementById('menu-btn');
+
+menuBtn.addEventListener('click', ()=> sidebar.classList.toggle('open'));
+
+let sessionId = localStorage.getItem('agno_session_id') || null;
+let mode = localStorage.getItem('agno_mode') || 'text';
+
+const micBtn = document.getElementById('mic-btn');
+const micStatus = document.getElementById('mic-status');
+const composerHint = document.getElementById('composer-hint');
+
+function applyMode(){
+  document.querySelectorAll('.mode-opt').forEach(el=>{
+    const isSelected = el.dataset.mode === mode;
+    el.classList.toggle('selected', isSelected);
+    const radio = el.querySelector('input');
+    if(radio) radio.checked = isSelected;
+  });
+  const voiceLike = (mode === 'voice' || mode === 'avatar');
+  micBtn.classList.toggle('shown', voiceLike);
+  micBtn.classList.toggle('hidden', !voiceLike);
+  document.getElementById('avatar-stage').classList.toggle('shown', mode === 'avatar');
+  composerHint.textContent = voiceLike
+    ? '🎤 চাপুন কথা বলতে (আবার চাপলে থামবে, টেক্সট এডিট করে পাঠান) · Enter = পাঠান'
+    : 'Enter = পাঠান · Shift+Enter = নতুন লাইন';
+}
+document.querySelectorAll('.mode-opt:not(.disabled)').forEach(el=>{
+  el.addEventListener('click', ()=>{
+    mode = el.dataset.mode;
+    localStorage.setItem('agno_mode', mode);
+    applyMode();
+  });
+});
+applyMode();
+
+// ---- load team roster ----
+async function loadHealth(){
+  try{
+    const res = await fetch('/api/health');
+    const data = await res.json();
+    rosterEl.innerHTML = '';
+    data.teams.forEach(name=>{
+      const row = document.createElement('div');
+      row.className = 'team-row';
+      row.dataset.team = name;
+      row.style.setProperty('--team-color', colorFor(name));
+      row.innerHTML = `<span class="dot"></span><span>${name}</span>`;
+      rosterEl.appendChild(row);
+    });
+  }catch(e){
+    rosterEl.innerHTML = '<div class="team-row">টিম তালিকা লোড ব্যর্থ</div>';
+  }
+}
+loadHealth();
+
+function setTeamActive(name){
+  document.querySelectorAll('.team-row').forEach(r=>{
+    r.classList.toggle('active', r.dataset.team === name);
+  });
+  activeTeamLabel.textContent = name ? `↳ ${name} কাজ করছে` : '';
+}
+function clearTeamActive(){
+  document.querySelectorAll('.team-row').forEach(r=>r.classList.remove('active'));
+  activeTeamLabel.textContent = '';
+}
+
+// ---- অ্যাভাটার অ্যানিমেশন (Phase 3) — অডিওর ভলিউম বিশ্লেষণ করে মুখ নাড়ায় ----
+let audioCtx = null;
+const avatarRing = document.getElementById('avatar-ring');
+const avatarMouth = document.getElementById('avatar-mouth');
+const avatarCaption = document.getElementById('avatar-caption');
+
+function animateAvatarWithAudio(audio){
+  if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if(audioCtx.state === 'suspended') audioCtx.resume();
+
+  const source = audioCtx.createMediaElementSource(audio);
+  const analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 256;
+  source.connect(analyser);
+  analyser.connect(audioCtx.destination);
+
+  const data = new Uint8Array(analyser.frequencyBinCount);
+  avatarRing.classList.add('speaking');
+  avatarCaption.textContent = 'বলছি…';
+  let smoothed = 0;
+
+  function tick(){
+    if(audio.paused || audio.ended){
+      avatarRing.style.setProperty('--mouth-open', 0);
+      avatarRing.classList.remove('speaking');
+      avatarCaption.textContent = 'বলুন, শুনছি…';
+      return;
+    }
+    analyser.getByteFrequencyData(data);
+    const avg = data.reduce((a,b)=>a+b, 0) / data.length;   // 0..255
+    const target = Math.min(1, avg / 90);
+    smoothed += (target - smoothed) * 0.35;                 // কাঁপুনি কমাতে সামান্য smoothing
+    avatarRing.style.setProperty('--mouth-open', smoothed.toFixed(3));
+    requestAnimationFrame(tick);
+  }
+  tick();
+}
+
+// ---- ভয়েস ইনপুট (STT) ----
+let mediaRecorder = null;
+let audioChunks = [];
+let recording = false;
+
+async function toggleMic(){
+  if(recording){
+    mediaRecorder.stop();
+    return;
+  }
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+    mediaRecorder = new MediaRecorder(stream);
+    audioChunks = [];
+    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+    mediaRecorder.onstop = async ()=>{
+      recording = false;
+      micBtn.classList.remove('recording');
+      stream.getTracks().forEach(t=>t.stop());
+      const blob = new Blob(audioChunks, {type: 'audio/webm'});
+      micStatus.textContent = 'শুনে টেক্সটে বসানো হচ্ছে…';
+      try{
+        const form = new FormData();
+        form.append('audio', blob, 'speech.webm');
+        const res = await fetch('/api/stt', {method:'POST', body: form});
+        if(!res.ok) throw new Error((await res.json()).detail || 'STT ব্যর্থ');
+        const data = await res.json();
+        input.value = (input.value ? input.value + ' ' : '') + data.text;
+        input.dispatchEvent(new Event('input'));
+        input.focus();
+        micStatus.textContent = '';
+      }catch(err){
+        micStatus.textContent = 'ভুল হয়েছে: ' + err.message;
+      }
+    };
+    mediaRecorder.start();
+    recording = true;
+    micBtn.classList.add('recording');
+    micStatus.textContent = 'রেকর্ড হচ্ছে… (থামাতে আবার চাপুন)';
+  }catch(err){
+    micStatus.textContent = 'মাইক্রোফোন অ্যাক্সেস দেওয়া হয়নি।';
+  }
+}
+micBtn.addEventListener('click', toggleMic);
+
+// ---- ভয়েস আউটপুট (TTS) ----
+async function attachTTS(bubbleWrap, text){
+  if(!text.trim()) return;
+  const chip = document.createElement('div');
+  chip.className = 'audio-chip loading';
+  chip.textContent = '🔊 তৈরি হচ্ছে…';
+  bubbleWrap.appendChild(chip);
+  try{
+    const res = await fetch('/api/tts', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({text})
+    });
+    if(!res.ok) throw new Error('TTS ব্যর্থ');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    chip.classList.remove('loading');
+    chip.textContent = '🔊 শুনুন';
+    chip.onclick = ()=> audio.play();
+    if(mode === 'avatar'){
+      animateAvatarWithAudio(audio);
+    }
+    audio.play();
+  }catch(err){
+    chip.classList.remove('loading');
+    chip.textContent = '🔇 অডিও তৈরি ব্যর্থ';
+  }
+}
+
+// ---- websocket ----
+let ws;
+let currentAgentBubble = null;
+let currentAgentText = '';
+
+function connect(){
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws/chat`);
+
+  ws.onopen = ()=>{
+    connDot.classList.add('online');
+    connText.textContent = 'সংযুক্ত';
+    sendBtn.disabled = false;
+  };
+  ws.onclose = ()=>{
+    connDot.classList.remove('online');
+    connText.textContent = 'সংযোগ বিচ্ছিন্ন — পুনরায় চেষ্টা হচ্ছে…';
+    sendBtn.disabled = true;
+    setTimeout(connect, 2000);
+  };
+  ws.onerror = ()=> ws.close();
+
+  ws.onmessage = (ev)=>{
+    const data = JSON.parse(ev.data);
+    if(data.type === 'session'){
+      sessionId = data.session_id;
+      localStorage.setItem('agno_session_id', sessionId);
+    } else if(data.type === 'chunk'){
+      if(!currentAgentBubble){
+        currentAgentBubble = addMessage('agent', '', data.team);
+      }
+      if(data.team) setTeamActive(data.team);
+      currentAgentText += data.text;
+      currentAgentBubble.querySelector('.bubble').textContent = currentAgentText;
+      scrollToBottom();
+    } else if(data.type === 'done'){
+      if((mode === 'voice' || mode === 'avatar') && currentAgentBubble && currentAgentText){
+        attachTTS(currentAgentBubble, currentAgentText);
+      }
+      currentAgentBubble = null;
+      currentAgentText = '';
+      clearTeamActive();
+      sendBtn.disabled = false;
+    } else if(data.type === 'error'){
+      if(!currentAgentBubble) currentAgentBubble = addMessage('agent', '', null);
+      currentAgentBubble.querySelector('.bubble').classList.add('error');
+      currentAgentBubble.querySelector('.bubble').textContent = 'সমস্যা হয়েছে: ' + data.message;
+      currentAgentBubble = null; currentAgentText = '';
+      clearTeamActive();
+      sendBtn.disabled = false;
+    }
+  };
+}
+connect();
+
+function addMessage(role, text, team){
+  emptyState.style.display = 'none';
+  const wrap = document.createElement('div');
+  wrap.className = 'msg ' + role;
+  let tagHtml = '';
+  if(role === 'agent'){
+    const c = team ? colorFor(team) : '#8B9BAA';
+    tagHtml = `<div class="tag"><span class="swatch" style="background:${c}"></span>${team || 'Supervisor'}</div>`;
+  }
+  wrap.innerHTML = `${tagHtml}<div class="bubble"></div>`;
+  wrap.querySelector('.bubble').textContent = text;
+  threadInner.appendChild(wrap);
+  scrollToBottom();
+  return wrap;
+}
+
+function scrollToBottom(){
+  thread.scrollTop = thread.scrollHeight;
+}
+
+function send(){
+  const text = input.value.trim();
+  if(!text || ws.readyState !== WebSocket.OPEN) return;
+  addMessage('user', text, null);
+  ws.send(JSON.stringify({message: text, session_id: sessionId}));
+  input.value = '';
+  input.style.height = 'auto';
+  sendBtn.disabled = true;
+}
+
+sendBtn.addEventListener('click', send);
+input.addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter' && !e.shiftKey){
+    e.preventDefault();
+    send();
+  }
+});
+input.addEventListener('input', ()=>{
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 160) + 'px';
+});
+
+// ---------------------------------------------------------------------
+// Service Worker — PWA ইনস্টলযোগ্যতা ও app-shell অফলাইন cache-এর জন্য।
+// ---------------------------------------------------------------------
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/static/sw.js").catch((e) => console.warn("SW register failed", e));
+  });
+}
+
+(function initDashboardLink(){
+  const a = document.createElement('a');
+  a.href = '/dashboard';
+  a.textContent = '📊 ড্যাশবোর্ড';
+  a.style.cssText = 'position:fixed;right:16px;top:16px;z-index:9999;background:#1c2128;border:1px solid #3a4150;color:#4FD1C5;padding:6px 12px;border-radius:8px;font-size:12px;text-decoration:none;font-family:inherit;box-shadow:0 4px 12px rgba(0,0,0,.3)';
+  document.body.appendChild(a);
+})();
+
+// ---------------------------------------------------------------------
+// Approval Panel — guardrail.py-র pending approval-request দেখানো ও
+// approve/deny করার জন্য। প্রতি ৩ সেকেন্ডে /api/approvals পোল করে।
+// ---------------------------------------------------------------------
+(function initApprovalPanel(){
+  const panel = document.createElement('div');
+  panel.id = 'approval-panel';
+  panel.style.cssText = 'position:fixed;right:16px;bottom:16px;max-width:360px;z-index:9999;display:flex;flex-direction:column;gap:8px;';
+  document.body.appendChild(panel);
+
+  const style = document.createElement('style');
+  style.textContent = `
+    .approval-card{background:#1c2128;border:1px solid #3a4150;border-radius:10px;padding:12px 14px;color:#e6e6e6;font-family:inherit;box-shadow:0 6px 18px rgba(0,0,0,.35)}
+    .approval-card h4{margin:0 0 4px 0;font-size:14px}
+    .approval-card p{margin:0 0 10px 0;font-size:13px;color:#b9c0cc}
+    .approval-actions{display:flex;gap:8px}
+    .approval-actions button{flex:1;padding:6px 10px;border-radius:6px;border:none;cursor:pointer;font-size:13px}
+    .approval-approve{background:#2e7d46;color:#fff}
+    .approval-deny{background:#8a2f2f;color:#fff}
+  `;
+  document.head.appendChild(style);
+
+  async function poll(){
+    try{
+      const res = await fetch('/api/approvals');
+      const data = await res.json();
+      panel.innerHTML = '';
+      (data.pending || []).forEach(p => {
+        const card = document.createElement('div');
+        card.className = 'approval-card';
+        card.innerHTML = `<h4>অনুমোদন দরকার: ${p.action}</h4><p>${p.details}</p>
+          <div class="approval-actions">
+            <button class="approval-approve">✅ অনুমতি দিন</button>
+            <button class="approval-deny">❌ প্রত্যাখ্যান</button>
+          </div>`;
+        card.querySelector('.approval-approve').onclick = () => respond(p.id, true);
+        card.querySelector('.approval-deny').onclick = () => respond(p.id, false);
+        panel.appendChild(card);
+      });
+    }catch(e){ /* সার্ভার সাময়িক অনুপলব্ধ হলে চুপচাপ পরের পোলে চেষ্টা */ }
+  }
+
+  async function respond(id, approved){
+    try{
+      await fetch(`/api/approvals/${id}/respond`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({approved}),
+      });
+    }finally{ poll(); }
+  }
+
+  poll();
+  setInterval(poll, 3000);
+})();
+</script>
+</body>
+</html>

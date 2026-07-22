@@ -1,0 +1,62 @@
+# Portable (Docker/headless) dependency set for Noor Agent.
+# Voice(STT/TTS), Vision(screen-read) ও desktop-control ফিচারগুলো হার্ডওয়্যার/GUI
+# লাগে বলে হেডলেস কন্টেইনারে চলে না — সেগুলোর ভারী প্যাকেজ (torch/transformers/
+# faster-whisper/opencv/mss/moviepy/docling/crawl4ai) এখানে বাদ। বাকি সব টিম চলে।
+
+# --- Core ---
+agno
+python-dotenv
+
+# --- Web server ---
+fastapi
+uvicorn[standard]
+websockets
+python-multipart
+
+# --- Model providers ---
+openai
+
+# --- Database ---
+pymongo
+
+# --- Free tools / research ---
+duckduckgo-search
+ddgs
+wikipedia
+arxiv
+pypdf
+pymed
+baidusearch
+newspaper4k
+lxml_html_clean
+trafilatura
+pandas
+duckdb
+sqlalchemy
+matplotlib
+yfinance
+pycountry
+
+# --- Web crawling (research/coding/ecommerce/knowledge/ops/social teams এটা লাগে) ---
+crawl4ai
+
+# --- Coding Team ---
+docker
+PyGithub
+python-gitlab
+
+# --- Social Media Team ---
+python-telegram-bot
+requests
+
+# --- Scheduler Team ---
+apscheduler
+
+# --- Security Team ---
+cryptography
+
+# --- Notification Team ---
+plyer
+
+# --- misc ---
+numpy

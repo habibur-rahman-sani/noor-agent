@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agno — অবজারভেবিলিটি ড্যাশবোর্ড</title>
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#0F1720">
+<style>
+  :root{ --bg:#0F1720; --card:#1c2128; --border:#3a4150; --text:#e6e6e6; --muted:#9aa4b2; --accent:#4FD1C5; }
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--text);font-family:-apple-system,Segoe UI,Roboto,"Noto Sans Bengali",sans-serif;margin:0;padding:20px;}
+  h1{font-size:20px;margin:0 0 4px}
+  p.sub{color:var(--muted);margin:0 0 20px;font-size:13px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:24px}
+  .stat{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px}
+  .stat .n{font-size:26px;font-weight:700;color:var(--accent)}
+  .stat .l{font-size:12px;color:var(--muted);margin-top:4px}
+  section{margin-bottom:28px}
+  h2{font-size:15px;border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:10px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--border);vertical-align:top}
+  th{color:var(--muted);font-weight:500}
+  .badge{display:inline-block;background:#243043;color:var(--accent);border-radius:6px;padding:2px 8px;font-size:11px;margin:1px}
+  .status-approved{color:#4ade80}.status-denied{color:#f87171}.status-timeout,.status-pending{color:#fbbf24}
+  .empty{color:var(--muted);font-size:13px;padding:10px 0}
+  button{background:var(--accent);color:#0F1720;border:none;border-radius:6px;padding:6px 14px;cursor:pointer;font-size:13px}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+  <h1>📊 Agno — অবজারভেবিলিটি ড্যাশবোর্ড</h1>
+  <p class="sub">প্রতি ৫ সেকেন্ডে অটো-রিফ্রেশ হয় · <a href="/">চ্যাটে ফিরে যাও</a> · <button onclick="loadAll()">এখনই রিফ্রেশ</button></p>
+
+  <div class="grid" id="stats"></div>
+
+  <section>
+    <h2>সাম্প্রতিক চ্যাট-ট্রেস (কোন টিম ব্যবহার হলো)</h2>
+    <div id="traces"></div>
+  </section>
+
+  <section>
+    <h2>শিডিউল করা কাজের ফলাফল (Proactive)</h2>
+    <div id="scheduler"></div>
+  </section>
+
+  <section>
+    <h2>Approval History (guardrail audit log)</h2>
+    <div id="approvals"></div>
+  </section>
+
+<script>
+function esc(s){ return (s==null?"":String(s)).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+function timeAgo(iso){
+  if(!iso) return "-";
+  try{ return new Date(iso).toLocaleString("bn-BD"); }catch(e){ return iso; }
+}
+
+async function loadTraces(){
+  const box = document.getElementById("traces");
+  try{
+    const res = await fetch("/api/traces?limit=30");
+    const data = await res.json();
+    const traces = data.traces || [];
+    document.getElementById("stat-traces").textContent = traces.length;
+    if(!traces.length){ box.innerHTML = '<div class="empty">এখনো কোনো চ্যাট-ট্রেস নেই।</div>'; return; }
+    box.innerHTML = `<table><tr><th>সময়</th><th>মেসেজ</th><th>টিম</th><th>উত্তরের দৈর্ঘ্য</th></tr>` +
+      traces.map(t => `<tr>
+        <td>${esc(timeAgo(t.at))}</td>
+        <td>${esc((t.message||"").slice(0,80))}</td>
+        <td>${(t.teams_touched||[]).map(x=>`<span class="badge">${esc(x)}</span>`).join(" ") || "-"}</td>
+        <td>${esc(t.response_length)}</td>
+      </tr>`).join("") + `</table>`;
+  }catch(e){ box.innerHTML = '<div class="empty">লোড ব্যর্থ — সার্ভার/DB চালু আছে কিনা যাচাই করো।</div>'; }
+}
+
+async function loadScheduler(){
+  const box = document.getElementById("scheduler");
+  try{
+    const res = await fetch("/api/scheduler/results?limit=20");
+    const data = await res.json();
+    const results = data.results || [];
+    document.getElementById("stat-scheduler").textContent = results.length;
+    if(!results.length){ box.innerHTML = '<div class="empty">এখনো কোনো শিডিউল করা কাজ চলেনি।</div>'; return; }
+    box.innerHTML = `<table><tr><th>সময়</th><th>জব</th><th>Prompt</th><th>ফলাফল</th></tr>` +
+      results.map(r => `<tr>
+        <td>${esc(timeAgo(r.ran_at))}</td>
+        <td>${esc(r.job_label)}</td>
+        <td>${esc((r.prompt||"").slice(0,60))}</td>
+        <td>${esc((r.result||"").slice(0,120))}</td>
+      </tr>`).join("") + `</table>`;
+  }catch(e){ box.innerHTML = '<div class="empty">লোড ব্যর্থ।</div>'; }
+}
+
+async function loadApprovals(){
+  const box = document.getElementById("approvals");
+  try{
+    const res = await fetch("/api/approvals/history?limit=20");
+    const data = await res.json();
+    const items = data.approvals || [];
+    document.getElementById("stat-approvals").textContent = items.length;
+    if(!items.length){ box.innerHTML = '<div class="empty">এখনো কোনো approval-request হয়নি।</div>'; return; }
+    box.innerHTML = `<table><tr><th>সময়</th><th>Action</th><th>বিস্তারিত</th><th>স্ট্যাটাস</th></tr>` +
+      items.map(a => `<tr>
+        <td>${esc(timeAgo(a.created_at))}</td>
+        <td>${esc(a.action)}</td>
+        <td>${esc((a.details||"").slice(0,80))}</td>
+        <td class="status-${esc(a.status)}">${esc(a.status)}</td>
+      </tr>`).join("") + `</table>`;
+  }catch(e){ box.innerHTML = '<div class="empty">লোড ব্যর্থ।</div>'; }
+}
+
+async function loadStats(){
+  const statsBox = document.getElementById("stats");
+  statsBox.innerHTML = `
+    <div class="stat"><div class="n" id="stat-traces">-</div><div class="l">সাম্প্রতিক চ্যাট</div></div>
+    <div class="stat"><div class="n" id="stat-scheduler">-</div><div class="l">শিডিউল কাজ (সাম্প্রতিক)</div></div>
+    <div class="stat"><div class="n" id="stat-approvals">-</div><div class="l">Approval history</div></div>
+  `;
+}
+
+async function loadAll(){
+  await loadStats();
+  await Promise.all([loadTraces(), loadScheduler(), loadApprovals()]);
+}
+
+loadAll();
+setInterval(loadAll, 5000);
+</script>
+</body>
+</html>

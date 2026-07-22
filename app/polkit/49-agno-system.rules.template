@@ -1,0 +1,29 @@
+// polkit rule — sudoers.d-এর বিকল্প, শুধু systemd সার্ভিস কন্ট্রোলের জন্য
+// (প্যাকেজ ম্যানেজার এখনো sudoers দিয়েই হয়, কারণ apt/dnf/pacman-এর জন্য কোনো
+// স্ট্যান্ডার্ড polkit action-id নেই — শুধু PackageKit ব্যবহার করলে থাকত, কিন্তু
+// সব distro-তে PackageKit থাকে না)।
+//
+// এই ফাইল __USER__ ইউজারকে systemd ইউনিট start/stop/restart/enable/disable
+// করার অনুমতি পাসওয়ার্ড ছাড়া দেয় — protected ইউনিট (ssh/network/dbus/
+// systemd-core/agno-system নিজে) বাদে, যাতে ভুলে নিজেকে লকআউট না করে।
+//
+// ইনস্টল: scripts/install_polkit.sh চালাও (এটাই __USER__ প্রতিস্থাপন করে সঠিক
+// জায়গায় বসায়)।
+
+polkit.addRule(function(action, subject) {
+    if (action.id != "org.freedesktop.systemd1.manage-units") {
+        return polkit.Result.NOT_HANDLED;
+    }
+    if (subject.user != "__USER__") {
+        return polkit.Result.NOT_HANDLED;
+    }
+
+    var unit = action.lookup("unit") || "";
+    var protectedPrefixes = ["ssh", "network", "systemd-", "dbus", "agno-system"];
+    for (var i = 0; i < protectedPrefixes.length; i++) {
+        if (unit.indexOf(protectedPrefixes[i]) === 0) {
+            return polkit.Result.NO;  // হার্ড ব্লক — approve করেও bypass করা যাবে না
+        }
+    }
+    return polkit.Result.YES;
+});
