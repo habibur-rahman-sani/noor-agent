@@ -209,6 +209,86 @@
     font-size:11px;
     color:var(--text-dim);
   }
+  #settings-btn{
+    margin-left:12px;
+    background:none; border:none; cursor:pointer;
+    font-size:19px; padding:4px; line-height:1;
+    opacity:.85; transition:opacity .2s ease, transform .2s ease;
+  }
+  #settings-btn:hover{ opacity:1; transform:rotate(35deg); }
+
+  /* ---------- key-missing banner ---------- */
+  #key-banner{
+    display:none;
+    align-items:center;
+    gap:12px;
+    flex-shrink:0;
+    padding:10px 18px;
+    background:rgba(232,163,61,.12);
+    border-bottom:1px solid rgba(232,163,61,.35);
+    color:var(--amber);
+    font-size:13px;
+  }
+  #key-banner.show{ display:flex; }
+  #key-banner button{
+    margin-left:auto;
+    background:var(--amber); color:#20160A; border:none;
+    border-radius:7px; padding:6px 12px; font-weight:600;
+    font-size:12.5px; cursor:pointer; white-space:nowrap;
+  }
+
+  /* ---------- settings modal ---------- */
+  #settings-overlay{
+    display:none;
+    position:fixed; inset:0; z-index:1000;
+    background:rgba(0,0,0,.62);
+    align-items:center; justify-content:center;
+    padding:18px;
+  }
+  #settings-overlay.show{ display:flex; }
+  #settings-modal{
+    width:100%; max-width:440px;
+    background:var(--panel); border:1px solid var(--line);
+    border-radius:14px; padding:22px;
+    box-shadow:0 20px 60px rgba(0,0,0,.5);
+  }
+  #settings-modal .sm-title{
+    font-family:'Space Grotesk',sans-serif; font-weight:600;
+    font-size:16px; margin-bottom:10px;
+  }
+  #settings-modal .sm-status{
+    font-family:'JetBrains Mono',monospace; font-size:12px;
+    color:var(--text-dim); margin-bottom:12px;
+  }
+  #settings-modal .sm-status.ok{ color:#6EE7B7; }
+  #settings-modal .sm-status.bad{ color:#FCA5A5; }
+  #settings-modal .sm-help{
+    font-size:12.5px; color:var(--text-dim); line-height:1.6; margin:0 0 12px;
+  }
+  #settings-modal .sm-help a{ color:var(--amber); }
+  #sm-key-input{
+    width:100%; box-sizing:border-box;
+    background:var(--panel-2); border:1px solid var(--line);
+    border-radius:9px; padding:11px 12px; color:var(--text);
+    font-family:'JetBrains Mono',monospace; font-size:13px;
+  }
+  #sm-key-input:focus{ outline:none; border-color:var(--amber); }
+  #settings-modal .sm-msg{
+    font-size:12.5px; margin:10px 0 0; min-height:16px;
+  }
+  #settings-modal .sm-msg.ok{ color:#6EE7B7; }
+  #settings-modal .sm-msg.bad{ color:#FCA5A5; }
+  #settings-modal .sm-actions{
+    display:flex; gap:10px; justify-content:flex-end; margin-top:16px;
+  }
+  #settings-modal .sm-actions button{
+    border:none; border-radius:9px; padding:9px 16px;
+    font-family:'Space Grotesk',sans-serif; font-weight:600;
+    font-size:13px; cursor:pointer;
+  }
+  #sm-cancel{ background:var(--panel-2); color:var(--text); }
+  #sm-save{ background:var(--amber); color:#20160A; }
+  #sm-save:disabled{ opacity:.6; cursor:default; }
 
   /* ---------- avatar (Phase 3) ---------- */
   #avatar-stage{
@@ -506,6 +586,12 @@
       <button id="menu-btn" aria-label="মেনু">☰</button>
       <div class="title">সুপারভাইজারের সাথে চ্যাট</div>
       <div class="active-team" id="active-team-label"></div>
+      <button id="settings-btn" aria-label="সেটিংস" title="সেটিংস / API key">⚙️</button>
+    </div>
+
+    <div id="key-banner">
+      <span>⚠️ OpenRouter API key সেট করা নেই — উত্তর পেতে key বসান।</span>
+      <button id="key-banner-btn">key বসান</button>
     </div>
 
     <div id="avatar-stage">
@@ -543,6 +629,25 @@
     </div>
   </main>
 
+</div>
+
+<div id="settings-overlay">
+  <div id="settings-modal">
+    <div class="sm-title">⚙️ সেটিংস — OpenRouter API key</div>
+    <div class="sm-status" id="sm-status">লোড হচ্ছে…</div>
+    <p class="sm-help">
+      AI উত্তর দিতে একটা ফ্রি OpenRouter key লাগে। নিতে:
+      <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener">openrouter.ai → Keys</a>
+      → Create Key → কপি করে নিচে পেস্ট করুন।
+    </p>
+    <input id="sm-key-input" type="text" spellcheck="false" autocomplete="off"
+           placeholder="sk-or-v1-..." />
+    <div class="sm-msg" id="sm-msg"></div>
+    <div class="sm-actions">
+      <button id="sm-cancel">বন্ধ</button>
+      <button id="sm-save">Save করুন</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -755,8 +860,10 @@ async function checkHealth(){
   try{
     const res = await fetch('/api/health', {cache:'no-store'});
     if(!res.ok) throw new Error();
+    const data = await res.json();
     connDot.classList.add('online');
     connText.textContent = 'সংযুক্ত';
+    setKeyBanner(data.ready === false);
   }catch(e){
     connDot.classList.remove('online');
     connText.textContent = 'সংযোগ নেই';
@@ -764,6 +871,86 @@ async function checkHealth(){
 }
 checkHealth();
 setInterval(checkHealth, 8000);
+
+// ---- settings / API key (টার্মিনাল ছাড়াই ব্রাউজারে key বসানো) ----
+const settingsOverlay = document.getElementById('settings-overlay');
+const smStatus = document.getElementById('sm-status');
+const smMsg = document.getElementById('sm-msg');
+const smInput = document.getElementById('sm-key-input');
+const smSave = document.getElementById('sm-save');
+const keyBanner = document.getElementById('key-banner');
+
+function setKeyBanner(show){
+  if(keyBanner) keyBanner.classList.toggle('show', !!show);
+}
+
+async function refreshSettingsStatus(){
+  try{
+    const res = await fetch('/api/settings', {cache:'no-store'});
+    const d = await res.json();
+    if(d.openrouter_configured && d.ready){
+      smStatus.textContent = '✅ key সেট করা আছে ও সিস্টেম চালু ('+ (d.key_masked||'') +')';
+      smStatus.className = 'sm-status ok';
+    }else if(d.openrouter_configured){
+      smStatus.textContent = '⚠️ key সেভ আছে কিন্তু সিস্টেম এখনো চালু হয়নি — নতুন key দিয়ে আবার Save দিন।';
+      smStatus.className = 'sm-status bad';
+    }else{
+      smStatus.textContent = '❌ এখনো কোনো key সেট করা নেই।';
+      smStatus.className = 'sm-status bad';
+    }
+    setKeyBanner(!d.ready);
+  }catch(e){
+    smStatus.textContent = 'স্ট্যাটাস আনা যায়নি।';
+    smStatus.className = 'sm-status bad';
+  }
+}
+
+function openSettings(){
+  smMsg.textContent = ''; smMsg.className = 'sm-msg';
+  smInput.value = '';
+  settingsOverlay.classList.add('show');
+  refreshSettingsStatus();
+  setTimeout(()=> smInput.focus(), 100);
+}
+function closeSettings(){ settingsOverlay.classList.remove('show'); }
+
+async function saveKey(){
+  const key = smInput.value.trim();
+  if(!key){ smMsg.textContent = 'key বসান।'; smMsg.className = 'sm-msg bad'; return; }
+  smSave.disabled = true;
+  smMsg.textContent = 'যাচাই ও সেভ হচ্ছে…'; smMsg.className = 'sm-msg';
+  try{
+    const res = await fetch('/api/settings/key', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({api_key: key})
+    });
+    const d = await res.json().catch(()=>({}));
+    if(!res.ok){
+      smMsg.textContent = '❌ ' + (d.detail || ('HTTP ' + res.status));
+      smMsg.className = 'sm-msg bad';
+    }else{
+      smMsg.textContent = '✅ হয়ে গেছে! এখন চ্যাট করতে পারবেন।';
+      smMsg.className = 'sm-msg ok';
+      setKeyBanner(false);
+      refreshSettingsStatus();
+      checkHealth();
+      setTimeout(closeSettings, 1200);
+    }
+  }catch(e){
+    smMsg.textContent = '❌ সেভ ব্যর্থ: ' + e.message;
+    smMsg.className = 'sm-msg bad';
+  }finally{
+    smSave.disabled = false;
+  }
+}
+
+document.getElementById('settings-btn').addEventListener('click', openSettings);
+document.getElementById('key-banner-btn').addEventListener('click', openSettings);
+document.getElementById('sm-cancel').addEventListener('click', closeSettings);
+smSave.addEventListener('click', saveKey);
+smInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') saveKey(); });
+settingsOverlay.addEventListener('click', (e)=>{ if(e.target === settingsOverlay) closeSettings(); });
 
 function showThinking(){
   removeThinking();
@@ -808,6 +995,7 @@ function handleEvent(data){
     b.classList.add('error');
     b.textContent = 'সমস্যা হয়েছে: ' + data.message;
     finishTurn();
+    if(data.need_key){ setKeyBanner(true); openSettings(); }
   }
 }
 

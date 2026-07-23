@@ -16,6 +16,10 @@ services:
       - .env
     environment:
       MONGODB_URI: mongodb://mongo:27017
+    # .env হোস্ট থেকে মাউন্ট করা — ফলে UI-র ⚙️ সেটিংস থেকে বসানো API key
+    # কন্টেইনার রিস্টার্ট/রিবিল্ডের পরও থেকে যায় (হোস্টের .env-এ লেখা হয়)।
+    volumes:
+      - ./.env:/opt/agno_system/.env
     ports:
       - "8000:8000"
 

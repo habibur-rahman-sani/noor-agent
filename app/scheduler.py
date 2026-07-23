@@ -57,10 +57,10 @@ def _run_scheduled_prompt(prompt: str, job_label: str):
     """একটা শিডিউল করা কাজ ফায়ার হলে এটা চলে — supervisor-কে prompt দিয়ে
     সিঙ্ক্রোনাসভাবে চালায় (APScheduler-এর ডিফল্ট থ্রেড-পুল এক্সিকিউটর), ফলাফল
     লগ করে এবং সম্ভব হলে ডেস্কটপ নোটিফিকেশন পাঠায়।"""
-    from supervisor import supervisor
+    from supervisor import get_supervisor
 
     try:
-        response = supervisor.run(prompt, session_id=f"scheduled::{job_label}")
+        response = get_supervisor().run(prompt, session_id=f"scheduled::{job_label}")
         text = getattr(response, "content", None) or str(response)
     except Exception as e:  # noqa: BLE001
         text = f"শিডিউল করা কাজ ব্যর্থ হয়েছে: {e}"

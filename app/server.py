@@ -20,12 +20,14 @@ teams/agents-এ কিছু বদলাতে হয়নি। UI বন্
 
 import base64
 import json
+import os
 import secrets
 import uuid
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
+import requests
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException
 from fastapi.requests import Request
 from fastapi.responses import FileResponse, Response, StreamingResponse
@@ -33,7 +35,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from supervisor import supervisor
+from supervisor import get_supervisor, rebuild_supervisor, supervisor_ready
 from guardrail import list_pending_approvals, resolve_approval
 from scheduler import start_scheduler
 from auth import get_ui_credentials
@@ -53,6 +55,30 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 # (health-check বাদে) HTTP Basic Auth দিয়ে সুরক্ষিত — বিস্তারিত: auth.py
 _UI_USERNAME, _UI_PASSWORD = get_ui_credentials()
 _PUBLIC_PATHS = {"/api/health"}
+
+_ENV_PATH = Path(__file__).parent / ".env"
+_NO_KEY_MSG = (
+    "OpenRouter API key এখনো সেট করা হয়নি — উপরে-ডানে ⚙️ (সেটিংস) বাটনে ক্লিক করে "
+    "আপনার key বসিয়ে Save দিন, তারপর আবার মেসেজ পাঠান। (key নিতে: openrouter.ai → Keys)"
+)
+
+
+def _write_env_var(key: str, value: str):
+    """process env + .env ফাইল দুটোতেই একটা ভেরিয়েবল বসায়/আপডেট করে, যাতে
+    সার্ভার রিস্টার্ট ছাড়াই সাথে সাথে কাজ করে এবং রিস্টার্টের পরও থেকে যায়।"""
+    os.environ[key] = value
+    lines: list[str] = []
+    found = False
+    if _ENV_PATH.exists():
+        for line in _ENV_PATH.read_text(encoding="utf-8").splitlines():
+            if line.strip().startswith(key + "="):
+                lines.append(f"{key}={value}")
+                found = True
+            else:
+                lines.append(line)
+    if not found:
+        lines.append(f"{key}={value}")
+    _ENV_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _basic_auth_ok(header_value: str | None) -> bool:
@@ -166,8 +192,63 @@ async def index():
 async def health():
     return {
         "status": "ok",
-        "teams": [t.name for t in supervisor.members],
+        "ready": supervisor_ready(),
+        "teams": [t.name for t in get_supervisor().members] if supervisor_ready() else [],
     }
+
+
+@app.get("/api/settings")
+async def get_settings():
+    """UI-র সেটিংস প্যানেলের জন্য — key সেট আছে কিনা, সিস্টেম রেডি কিনা।"""
+    key = os.getenv("OPENROUTER_API_KEY", "")
+    local = os.getenv("LOCAL_MODEL_MODE", "0") == "1"
+    masked = ""
+    if key:
+        masked = (key[:10] + "…" + key[-4:]) if len(key) > 16 else "••••"
+    return {
+        "openrouter_configured": bool(key),
+        "key_masked": masked,
+        "local_mode": local,
+        "ready": supervisor_ready(),
+    }
+
+
+class KeyRequest(BaseModel):
+    api_key: str
+
+
+@app.post("/api/settings/key")
+async def set_key(req: KeyRequest):
+    """ব্রাউজার থেকেই OpenRouter API key সেভ করে (টার্মিনাল লাগে না) — key যাচাই
+    করে, .env-এ সেভ করে, তারপর পুরো সিস্টেম (supervisor + ১৭ টিম) চালু করে।"""
+    key = req.api_key.strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="খালি key দেওয়া যাবে না।")
+    if not key.startswith("sk-or-"):
+        raise HTTPException(status_code=400, detail="এটা OpenRouter key মনে হচ্ছে না — key সাধারণত 'sk-or-v1-...' দিয়ে শুরু হয়।")
+
+    # key সত্যিই কাজ করে কিনা যাচাই (network) — ভুল key সেভ করে বিভ্রান্তি এড়াতে
+    try:
+        r = requests.get(
+            "https://openrouter.ai/api/v1/key",
+            headers={"Authorization": f"Bearer {key}"},
+            timeout=20,
+        )
+        if r.status_code in (401, 403):
+            raise HTTPException(status_code=400, detail="key টা OpenRouter গ্রহণ করেনি (ভুল বা বাতিল key)। openrouter.ai → Keys থেকে নতুন একটা নিন।")
+    except HTTPException:
+        raise
+    except requests.exceptions.RequestException:
+        # নেট সমস্যা হলে যাচাই বাদ দিয়ে সেভ করি — পরে চ্যাটে চেষ্টা করলে বোঝা যাবে
+        logger.warning("key যাচাই করতে নেট সমস্যা — যাচাই ছাড়াই সেভ করছি।")
+
+    _write_env_var("OPENROUTER_API_KEY", key)
+    try:
+        rebuild_supervisor()
+    except Exception as e:  # noqa: BLE001
+        logger.exception("key সেভ হয়েছে কিন্তু supervisor চালু করা যায়নি।")
+        raise HTTPException(status_code=500, detail=f"key সেভ হয়েছে কিন্তু সিস্টেম চালু করতে সমস্যা: {e}")
+    return {"ok": True, "ready": supervisor_ready()}
 
 
 @app.post("/api/chat")
@@ -176,8 +257,10 @@ async def chat(req: ChatRequest):
     নন-স্ট্রিমিং সিম্পল এন্ডপয়েন্ট (কার্ল/স্ক্রিপ্ট দিয়ে টেস্ট করার জন্য সুবিধাজনক)।
     UI মূলত নিচের WebSocket এন্ডপয়েন্ট ব্যবহার করে (স্ট্রিমিং রেসপন্সের জন্য)।
     """
+    if not supervisor_ready():
+        raise HTTPException(status_code=503, detail=_NO_KEY_MSG)
     session_id = req.session_id or str(uuid.uuid4())
-    response = await supervisor.arun(req.message, session_id=session_id)
+    response = await get_supervisor().arun(req.message, session_id=session_id)
     text = getattr(response, "content", None) or str(response)
     memory_core.log_exchange(session_id, req.message, text)
     return {"session_id": session_id, "response": text}
@@ -200,10 +283,14 @@ async def chat_stream(req: ChatRequest):
 
     async def gen():
         yield json.dumps({"type": "session", "session_id": session_id}) + "\n"
+        if not supervisor_ready():
+            yield json.dumps({"type": "error", "message": _NO_KEY_MSG, "need_key": True}) + "\n"
+            return
+        sup = get_supervisor()
         parts: list[str] = []
         teams_touched: list[str] = []
         try:
-            stream = await supervisor.arun(message, session_id=session_id, stream=True)
+            stream = await sup.arun(message, session_id=session_id, stream=True)
             async for event in stream:
                 text = _extract_text(event)
                 if not text:
@@ -215,7 +302,7 @@ async def chat_stream(req: ChatRequest):
                 yield json.dumps({"type": "chunk", "text": text, "team": team}) + "\n"
             # স্ট্রিম থেকে কোনো টেক্সট না এলে non-streaming fallback (যাতে উত্তর নিশ্চিত আসে)
             if not parts:
-                response = await supervisor.arun(message, session_id=session_id)
+                response = await sup.arun(message, session_id=session_id)
                 text = getattr(response, "content", None) or str(response)
                 parts.append(text)
                 yield json.dumps({"type": "chunk", "text": text, "team": None}) + "\n"
@@ -223,7 +310,7 @@ async def chat_stream(req: ChatRequest):
         except Exception as e:  # noqa: BLE001 — স্ট্রিমিং ব্যর্থ হলে non-streaming fallback
             logger.warning("Streaming failed (%s), falling back.", e)
             try:
-                response = await supervisor.arun(message, session_id=session_id)
+                response = await sup.arun(message, session_id=session_id)
                 text = getattr(response, "content", None) or str(response)
                 parts.append(text)
                 yield json.dumps({"type": "chunk", "text": text, "team": None}) + "\n"
@@ -434,10 +521,14 @@ async def ws_chat(ws: WebSocket):
 
             await ws.send_text(json.dumps({"type": "session", "session_id": session_id}))
 
+            if not supervisor_ready():
+                await ws.send_text(json.dumps({"type": "error", "message": _NO_KEY_MSG, "need_key": True}))
+                continue
+
             full_text_parts: list[str] = []
             teams_touched: list[str] = []
             try:
-                stream = await supervisor.arun(message, session_id=session_id, stream=True)
+                stream = await get_supervisor().arun(message, session_id=session_id, stream=True)
                 async for event in stream:
                     text = _extract_text(event)
                     if not text:
@@ -457,7 +548,7 @@ async def ws_chat(ws: WebSocket):
             except Exception as e:  # noqa: BLE001 — স্ট্রিমিং ব্যর্থ হলে non-streaming fallback
                 logger.warning("Streaming failed (%s), falling back to non-streaming run.", e)
                 try:
-                    response = await supervisor.arun(message, session_id=session_id)
+                    response = await get_supervisor().arun(message, session_id=session_id)
                     text = getattr(response, "content", None) or str(response)
                     await ws.send_text(json.dumps({"type": "chunk", "text": text, "team": None}))
                     await ws.send_text(json.dumps({"type": "done"}))
